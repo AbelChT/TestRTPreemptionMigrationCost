@@ -1,0 +1,4 @@
+/builds/
+/cmake-build-debug/
+/traces/
+/traces-preempt-rt/
