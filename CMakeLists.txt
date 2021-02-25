@@ -3,4 +3,8 @@ project(StressCPUC C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(StressCPUC main.c)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+add_executable(StressCPUC get_preemption_time_linux.c)
+target_link_libraries(StressCPUC PRIVATE Threads::Threads)
