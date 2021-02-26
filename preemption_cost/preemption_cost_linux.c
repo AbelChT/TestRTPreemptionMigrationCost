@@ -1,22 +1,20 @@
 //
 // Created by abel on 2/25/21.
 //
+// This program calculate the cost of the preemption in a Unix platform
+//
 #define _GNU_SOURCE
 
 #include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/resource.h>
 #include <sched.h>
-#include <unistd.h>
-#include <sys/time.h>
-#include <sys/wait.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <limits.h>
 
 // Define variables
-#define NUMBER_OF_EXPERIMENTS 20
+#define NUMBER_OF_EXPERIMENTS 100
 #define CORE_TO_TEST 3
 
 // Barrier for the test
@@ -30,31 +28,29 @@ void *thread_execution(void *data) {
     // Id of the process
     long process_id = (long) data;
 
-    // Local debug time measures
-    struct timespec local_time_measures[NUMBER_OF_EXPERIMENTS];
-    struct timespec debug_local_time_measures[NUMBER_OF_EXPERIMENTS];
-
     // Debug time get
     for (int i = 0; i < NUMBER_OF_EXPERIMENTS; ++i) {
+        // Define variables as locals to avoid cache fails while the measure
+        struct timespec local_time_measure;
+        struct timespec debug_local_time_measure;
+
         // Synchronize both threads
         pthread_barrier_wait(&start_barrier);
 
         // Get time (used to calculate preemption)
-        clock_gettime(CLOCK_MONOTONIC, &(local_time_measures[i]));
+        clock_gettime(CLOCK_MONOTONIC, &(local_time_measure));
         sched_yield(); // Do context switch
 
         // Get time (used for debug purposes)
-        clock_gettime(CLOCK_MONOTONIC, &(debug_local_time_measures[i]));
+        clock_gettime(CLOCK_MONOTONIC, &(debug_local_time_measure));
         sched_yield(); // Do context switch
 
         // Synchronize both threads
         pthread_barrier_wait(&end_barrier);
-    }
 
-    // Copy local to global data structures
-    for (int i = 0; i < NUMBER_OF_EXPERIMENTS; ++i) {
-        debug_time_measures[process_id][i] = debug_local_time_measures[i];
-        time_measures[process_id][i] = local_time_measures[i];
+        // Copy local to global data structures
+        debug_time_measures[process_id][i] = debug_local_time_measure;
+        time_measures[process_id][i] = local_time_measure;
     }
 
     return NULL;
@@ -114,8 +110,7 @@ int main() {
         }
 
         // Set a specific stack size
-        if (pthread_attr_setstacksize(&(attr[i]), PTHREAD_STACK_MIN + 0x4000 +
-                                                  2 * sizeof(struct timespec) * NUMBER_OF_EXPERIMENTS)) {
+        if (pthread_attr_setstacksize(&(attr[i]), PTHREAD_STACK_MIN + 0x4000)) {
             perror("pthread setstacksize failed");
             exit(-1);
         }
