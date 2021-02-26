@@ -43,10 +43,15 @@ struct thread_execution_arguments {
 
 struct timespec time_measures[2][2];
 
+#define NUMBER_OF_DEBUG_POINTS 3
+struct timespec debug_time_measures[2][NUMBER_OF_DEBUG_POINTS];
+
 void *thread_execution(void *data) {
     struct thread_execution_arguments *arguments = (struct thread_execution_arguments *) (data);
     int process_id = (*arguments).process_id;
     int thread_to_test = (*arguments).thread_to_test;
+
+    struct timespec local_debug_time_measures[NUMBER_OF_DEBUG_POINTS];
 
     // Set max priority for the thread
     // The sched fifo policy avoid involuntary preemption
@@ -62,9 +67,18 @@ void *thread_execution(void *data) {
     if (mlockall(MCL_CURRENT | MCL_FUTURE))
         perror("mlockall failed");
 
-
     // Synchronize both threads
     pthread_barrier_wait(&start_barrier);
+
+    // Debug time get
+    clock_gettime(CLOCK_MONOTONIC, &(local_debug_time_measures[0]));
+    sched_yield();
+
+    clock_gettime(CLOCK_MONOTONIC, &(local_debug_time_measures[1]));
+    sched_yield();
+
+    clock_gettime(CLOCK_MONOTONIC, &(local_debug_time_measures[2]));
+    sched_yield();
 
     // Get actual time in this thread
     clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -80,6 +94,10 @@ void *thread_execution(void *data) {
     // Unlock pages
     if (munlockall())
         perror("munlockall failed");
+
+    for (int i = 0; i < NUMBER_OF_DEBUG_POINTS; ++i) {
+        debug_time_measures[process_id][i] = local_debug_time_measures[i];
+    }
 
     return NULL;
 }
@@ -149,6 +167,18 @@ int main() {
            time_measures[0][1].tv_sec, time_measures[0][1].tv_nsec,
            time_measures[1][0].tv_sec, time_measures[1][0].tv_nsec,
            time_measures[1][1].tv_sec, time_measures[1][1].tv_nsec);
+
+    printf("Debug points:\n\tThread 1:\n");
+    for (int i = 0; i < NUMBER_OF_DEBUG_POINTS; ++i) {
+        printf("\t\tPoint %d: %ld s and %ld ns\n", i, debug_time_measures[0][i].tv_sec,
+               debug_time_measures[0][i].tv_nsec);
+    }
+
+    printf("Debug points:\n\tThread 2:\n");
+    for (int i = 0; i < NUMBER_OF_DEBUG_POINTS; ++i) {
+        printf("\t\tPoint %d: %ld s and %ld ns\n", i, debug_time_measures[1][i].tv_sec,
+               debug_time_measures[1][i].tv_nsec);
+    }
 
     if (timespec_subtract(&result, &(time_measures[0][1]), &(time_measures[1][0])) ||
         timespec_subtract(&result, &(time_measures[1][1]), &(time_measures[0][0])))
