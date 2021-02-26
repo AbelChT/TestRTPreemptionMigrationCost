@@ -13,33 +13,10 @@
 #include <sys/wait.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <limits.h>
 
-#define NUMBER_OF_TESTS 12
 
 static pthread_barrier_t start_barrier, end_barrier;
-
-/**
- * Set total affinity to CPU
- * @param cpu_where_set cpu where affinity will be set
- * @param previous_mask mask before affinity
- */
-int set_affinity_to_cpu(unsigned long cpu_where_set) {
-    cpu_set_t previous_mask;
-    long n_processors = sysconf(_SC_NPROCESSORS_ONLN);
-    if (cpu_where_set >= n_processors || sched_getaffinity(0, sizeof(cpu_set_t), &previous_mask) == -1) {
-        return -1;
-    } else {
-        cpu_set_t mask;
-        CPU_ZERO(&mask);
-        CPU_SET(cpu_where_set, &mask);
-        return sched_setaffinity(0, sizeof(cpu_set_t), &mask);
-    }
-}
-
-struct thread_execution_arguments {
-    int process_id;
-    int thread_to_test;
-};
 
 struct timespec time_measures[2][2];
 
@@ -47,38 +24,23 @@ struct timespec time_measures[2][2];
 struct timespec debug_time_measures[2][NUMBER_OF_DEBUG_POINTS];
 
 void *thread_execution(void *data) {
-    struct thread_execution_arguments *arguments = (struct thread_execution_arguments *) (data);
-    int process_id = (*arguments).process_id;
-    int thread_to_test = (*arguments).thread_to_test;
+    // Id of the process
+    long process_id = (long) data;
 
+    // Local debug time measures
     struct timespec local_debug_time_measures[NUMBER_OF_DEBUG_POINTS];
-
-    // Set max priority for the thread
-    // The sched fifo policy avoid involuntary preemption
-    struct sched_param my_sched;
-    my_sched.sched_priority = sched_get_priority_max(SCHED_FIFO);
-    sched_setscheduler(getpid(), SCHED_FIFO, &my_sched);
 
     // Time measures
     struct timespec start_time, end_time;
-    set_affinity_to_cpu(thread_to_test);
-
-    // Now lock all current and future pages from preventing of being paged
-    if (mlockall(MCL_CURRENT | MCL_FUTURE))
-        perror("mlockall failed");
 
     // Synchronize both threads
     pthread_barrier_wait(&start_barrier);
 
     // Debug time get
-    clock_gettime(CLOCK_MONOTONIC, &(local_debug_time_measures[0]));
-    sched_yield();
-
-    clock_gettime(CLOCK_MONOTONIC, &(local_debug_time_measures[1]));
-    sched_yield();
-
-    clock_gettime(CLOCK_MONOTONIC, &(local_debug_time_measures[2]));
-    sched_yield();
+    for (int i = 0; i < NUMBER_OF_DEBUG_POINTS; ++i) {
+        clock_gettime(CLOCK_MONOTONIC, &(local_debug_time_measures[i]));
+        sched_yield();
+    }
 
     // Get actual time in this thread
     clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -87,13 +49,12 @@ void *thread_execution(void *data) {
 
     // For debug purposes get the clock time
     clock_gettime(CLOCK_MONOTONIC, &end_time);
+
+    // Wait until the end of the experiment
     pthread_barrier_wait(&end_barrier);
     time_measures[process_id][0] = start_time;
     time_measures[process_id][1] = end_time;
 
-    // Unlock pages
-    if (munlockall())
-        perror("munlockall failed");
 
     for (int i = 0; i < NUMBER_OF_DEBUG_POINTS; ++i) {
         debug_time_measures[process_id][i] = local_debug_time_measures[i];
@@ -129,29 +90,82 @@ bool timespec_subtract(struct timespec *result, struct timespec *start_time, str
     return return_value;
 }
 
-struct thread_execution_arguments arguments_of_process[2];
+#define CORE_TO_TEST 3
+
+#define MY_STACK_SIZE 0x4000
 
 int main() {
-    int number_of_tests = NUMBER_OF_TESTS;
     pthread_t threads[2];
+    struct sched_param param[2];
+    pthread_attr_t attr[2];
+    cpu_set_t affinity_mask[2];
 
-
+    // Initialize barriers
     if (pthread_barrier_init(&start_barrier, NULL, 2))
         perror("thread barrier initialization failed");
 
     if (pthread_barrier_init(&end_barrier, NULL, 2))
         perror("thread barrier initialization failed");
 
-    for (int i = 0; i < 2; i++) {
-        arguments_of_process[i].process_id = i;
-        arguments_of_process[i].thread_to_test = 3;
-
-        if (pthread_create(&threads[i], NULL, &thread_execution, (void *) &(arguments_of_process[i])))
-            perror("thread creation failed");
+    // Lock memory
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
+        perror("mlockall failed");
     }
+
+    // Configure threads attributes
+    for (int i = 0; i < 2; ++i) {
+        // Init attrs
+        if (pthread_attr_init(&(attr[i]))) {
+            perror("pthread init failed");
+            exit(-1);
+        }
+
+        // Set a specific stack size
+        if (pthread_attr_setstacksize(&(attr[i]), PTHREAD_STACK_MIN + MY_STACK_SIZE)) {
+            perror("pthread setstacksize failed");
+            exit(-1);
+        }
+
+        // Set scheduler policy and priority of pthread
+        if (pthread_attr_setschedpolicy(&(attr[i]), SCHED_FIFO)) {
+            perror("pthread setschedpolicy failed");
+            exit(-1);
+        }
+        param[i].sched_priority = sched_get_priority_max(SCHED_FIFO);
+
+        if (pthread_attr_setschedparam(&(attr[i]), &(param[i]))) {
+            perror("pthread setschedparam failed");
+            exit(-1);
+        }
+
+        // Use scheduling parameters of attr
+        if (pthread_attr_setinheritsched(&(attr[i]), PTHREAD_EXPLICIT_SCHED)) {
+            perror("pthread setinheritsched failed");
+            exit(-1);
+        }
+
+        // Set thread affinity
+        CPU_ZERO(&(affinity_mask[i]));
+        CPU_SET(CORE_TO_TEST, &(affinity_mask[i]));
+
+        if (pthread_attr_setaffinity_np(&(attr[i]), sizeof(cpu_set_t), &(affinity_mask[i]))) {
+            perror("pthread setaffinity failed");
+            exit(-1);
+        }
+    }
+
+    for (long i = 0; i < 2; i++)
+        if (pthread_create(&threads[i], &(attr[i]), &thread_execution, (void *) i)) {
+            perror("thread creation failed");
+            exit(-1);
+        }
 
     for (int i = 0; i < 2; i++)
         pthread_join(threads[i], NULL);
+
+    // Unlock pages
+    if (munlockall())
+        perror("munlockall failed");
 
     // Calculate differences
     struct timespec result;
@@ -159,9 +173,10 @@ int main() {
     // Preemption time difference
     timespec_subtract(&result, &(time_measures[0][0]), &(time_measures[1][0]));
 
+    // Print results
     long long preemption_cost_nanoseconds = result.tv_sec * 1000000000L + result.tv_nsec;
 
-    printf("Time taken by the preemption %lld \n", preemption_cost_nanoseconds);
+    printf("Time taken by the preemption %lld ns\n", preemption_cost_nanoseconds);
     printf("Trace:\n\tThread 1:\n\t\tTimestamp before preemption: %ld s and %ld ns\n\t\tTimestamp after preemption: %ld s and %ld ns\n\tThread 2:\n\t\tTimestamp before preemption: %ld s and %ld ns\n\t\tTimestamp after preemption: %ld s and %ld ns\n",
            time_measures[0][0].tv_sec, time_measures[0][0].tv_nsec,
            time_measures[0][1].tv_sec, time_measures[0][1].tv_nsec,
