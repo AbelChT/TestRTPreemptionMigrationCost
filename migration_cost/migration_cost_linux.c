@@ -141,9 +141,9 @@ int main() {
     // Print result
     printf("Experiment result: \n\t%s: %d\n\t%s: %lld ns\n\t%s: %lld ns\n\t%s: %lld ns\n",
            "Number of experiments", NUMBER_OF_EXPERIMENTS,
-           "Minimum cost of preemption", min_migration_cost_nanoseconds,
-           "Maximum cost of preemption", max_migration_cost_nanoseconds,
-           "Average cost of preemption", avg_migration_cost_nanoseconds);
+           "Minimum cost of migration", min_migration_cost_nanoseconds,
+           "Maximum cost of migration", max_migration_cost_nanoseconds,
+           "Average cost of migration", avg_migration_cost_nanoseconds);
 
     return 0;
 }
