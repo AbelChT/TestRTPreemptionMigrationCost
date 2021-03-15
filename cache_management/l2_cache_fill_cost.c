@@ -19,6 +19,23 @@
 #define L1_CACHE_SIZE_BYTES 16384 // 16KB L1P and L1D
 #define L2_CACHE_SIZE_BYTES 524288 // 512KB L2
 
+#ifdef AARCH64_COMPILATION
+
+extern void read_from_vector_64_bits(int64_t *initial_addr, int64_t *final_addr);
+
+#else
+
+void read_from_vector_64_bits(int64_t *initial_addr, int64_t *final_addr) {
+    register int64_t load_register;
+    while (initial_addr <= final_addr) {
+        load_register = *initial_addr;
+        initial_addr = initial_addr + 8;
+    }
+}
+
+#endif
+
+
 bool timespec_subtract(struct timespec *result, struct timespec *start_time, struct timespec *end_time) {
     /***
      * Do timeval subtraction
@@ -53,7 +70,7 @@ int main() {
     // Variable with the size of half L2 cache
     // As other programs can be executing concurrently, only half cache will be used for the tests.
     // This will correspond to 8 from the 16 lines each set has
-    int8_t l2_fill_vector[L2_CACHE_SIZE_BYTES / 2];
+    int64_t l2_fill_vector[L2_CACHE_SIZE_BYTES / (2 * 8)];
 
     // Auxiliary variable where the time difference will be stored. It shouldn't be stored in cache while the loop execution
     struct timespec result;
@@ -63,9 +80,6 @@ int main() {
 
     // Vector were times will be stored
     long long l2_load_cost_nanoseconds[NUMBER_OF_EXPERIMENTS];
-
-    // Register used to load memory
-    register int8_t load_register;
 
     // Set max priority for the thread
     // The sched fifo policy avoid involuntary preemption
@@ -94,15 +108,11 @@ int main() {
     // Execute experiments
     for (int j = 0; j < NUMBER_OF_EXPERIMENTS; ++j) {
         // Fill L2 level cache
-        for (int i = 0; i < L2_CACHE_SIZE_BYTES / 2; i++) {
-            load_register = l2_fill_vector[i];
-        }
+        read_from_vector_64_bits(l2_fill_vector, &l2_fill_vector[(L2_CACHE_SIZE_BYTES / (2 * 8)) - 1]);
 
         // Cost of load vector stored in L2Cache
         clock_gettime(CLOCK_MONOTONIC, &(local_time_measure_after));
-        for (int i = 0; i < L2_CACHE_SIZE_BYTES / 2; i++) {
-            load_register = l2_fill_vector[i];
-        }
+        read_from_vector_64_bits(l2_fill_vector, &l2_fill_vector[(L2_CACHE_SIZE_BYTES / (2 * 8)) - 1]);
         clock_gettime(CLOCK_MONOTONIC, &(local_time_measure_before));
 
         // Operation time calculation
@@ -114,9 +124,7 @@ int main() {
 
         // Cost of load vector not stored in L2Cache
         clock_gettime(CLOCK_MONOTONIC, &(local_time_measure_after));
-        for (int i = 0; i < L2_CACHE_SIZE_BYTES / 2; i++) {
-            load_register = l2_fill_vector[i];
-        }
+        read_from_vector_64_bits(l2_fill_vector, &l2_fill_vector[(L2_CACHE_SIZE_BYTES / (2 * 8)) - 1]);
         clock_gettime(CLOCK_MONOTONIC, &(local_time_measure_before));
 
         // Operation time calculation
