@@ -62,8 +62,8 @@ This benchmark do the following:
 
 ### Results for 100 experiments
 
-Warning: This experiment isn't working as expected
+L2 Cache size = 512KB (the vector used is of 256KB)
 
 | Minimum cost | Maximum cost | Average cost |
 |--------------|--------------|--------------|
-| -15209 ns    | 15052 ns     | -69 ns       |
+| 60209 ns    | 199999 ns     | 81398 ns     |

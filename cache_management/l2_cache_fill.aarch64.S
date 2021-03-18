@@ -1,5 +1,5 @@
      .globl   read_from_vector_64_bits
-     .p2align 2
+     .p2align 8
      .type    read_from_vector_64_bits,%function
 read_from_vector_64_bits:               // Function "read_from_vector_64_bits" entry point.
      .cfi_startproc

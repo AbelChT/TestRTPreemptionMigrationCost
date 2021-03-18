@@ -12,6 +12,10 @@
 #include <time.h>
 #include <sched.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
 
 #define NUMBER_OF_EXPERIMENTS 100
 #define CORE_TO_TEST 2
@@ -19,22 +23,17 @@
 #define L1_CACHE_SIZE_BYTES 16384 // 16KB L1P and L1D
 #define L2_CACHE_SIZE_BYTES 524288 // 512KB L2
 
-#ifdef AARCH64_COMPILATION
-
 extern void read_from_vector_64_bits(int64_t *initial_addr, int64_t *final_addr);
 
-#else
-
-void read_from_vector_64_bits(int64_t *initial_addr, int64_t *final_addr) {
-    register int64_t load_register;
-    while (initial_addr <= final_addr) {
-        load_register = *initial_addr;
-        initial_addr = initial_addr + 8;
+void manual_clear_cache() {
+    int fd;
+    fd = open("/dev/clear_cache", O_RDWR);
+    if (fd < 0) {
+        perror("Failed to open the device...");
     }
+    close(fd);
+    sleep(1); // Allow other process to fill the cache L2 that their are using
 }
-
-#endif
-
 
 bool timespec_subtract(struct timespec *result, struct timespec *start_time, struct timespec *end_time) {
     /***
@@ -120,7 +119,7 @@ int main() {
         cached_vector_operation_time = result.tv_sec * 1000000000L + result.tv_nsec;
 
         // Clean cache
-        __builtin___clear_cache(l2_fill_vector, l2_fill_vector + sizeof(l2_fill_vector));
+        manual_clear_cache();
 
         // Cost of load vector not stored in L2Cache
         clock_gettime(CLOCK_MONOTONIC, &(local_time_measure_after));
