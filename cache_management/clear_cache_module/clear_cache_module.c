@@ -13,6 +13,8 @@ MODULE_AUTHOR("AbelChT");
 MODULE_DESCRIPTION("A linux driver to clean the cache in ARMv8");
 MODULE_VERSION("1.0");
 
+// The implementation of this function was obtained from
+// https://developer.arm.com/documentation/den0024/a/Caches/Cache-maintenance
 extern void manual_clear_cache(void);
 
 static int majorNumber;
@@ -32,7 +34,6 @@ static struct file_operations fops =
 
 static int __init dev_init(void)
 {
-    // Try to dynamically allocate a major number for the device -- more difficult but worth it
     majorNumber = register_chrdev(0, DEVICE_NAME, &fops);
     if (majorNumber < 0)
     {
@@ -48,15 +49,15 @@ static int __init dev_init(void)
     { // Check for error and clean up if there is
         unregister_chrdev(majorNumber, DEVICE_NAME);
         printk(KERN_ALERT "clear_cache: failed to register device class\n");
-        return PTR_ERR(clearCacheClass); // Correct way to return an error on a pointer
+        return PTR_ERR(clearCacheClass);
     }
     printk(KERN_INFO "clear_cache: device class registered correctly\n");
 
     // Register the device driver
     clearCacheDevice = device_create(clearCacheClass, NULL, MKDEV(majorNumber, 0), NULL, DEVICE_NAME);
     if (IS_ERR(clearCacheDevice))
-    {                                   // Clean up if there is an error
-        class_destroy(clearCacheClass); // Repeated code but the alternative is goto statements
+    { // Clean up if there is an error
+        class_destroy(clearCacheClass);
         unregister_chrdev(majorNumber, DEVICE_NAME);
         printk(KERN_ALERT "clear_cache: failed to create the device\n");
         return PTR_ERR(clearCacheDevice);
